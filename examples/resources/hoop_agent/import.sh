@@ -1,1 +1,1 @@
-terraform import hoop_agent.example <agent-id>
+terraform import hoop_agent.agent <agent-id>
