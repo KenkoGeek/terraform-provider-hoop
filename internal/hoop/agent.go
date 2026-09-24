@@ -4,9 +4,16 @@ package hoop
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
+)
+
+const (
+	agentCreateReadAttempts   = 3
+	agentCreateReadRetryDelay = 100 * time.Millisecond
 )
 
 type Agent struct {
@@ -58,15 +65,60 @@ func (c *Client) CreateAgent(name, mode string) (*Agent, error) {
 
 	var created AgentCreateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		return nil, fmt.Errorf("failed decoding agent create response, reason=%v", err)
+		createErr := fmt.Errorf("failed decoding agent create response, reason=%v", err)
+		return nil, c.rollbackCreatedAgent(name, createErr)
 	}
 
-	agent, err := c.GetAgent(name)
+	agent, err := c.getAgentAfterCreate(name)
 	if err != nil {
-		return nil, err
+		createErr := fmt.Errorf("failed reading newly created agent %q: %w", name, err)
+		return nil, c.rollbackCreatedAgent(name, createErr)
 	}
 	agent.Token = created.Token
 	return agent, nil
+}
+
+func (c *Client) getAgentAfterCreate(name string) (*Agent, error) {
+	var lastErr error
+	for attempt := 0; attempt < agentCreateReadAttempts; attempt++ {
+		agent, err := c.GetAgent(name)
+		if err == nil {
+			return agent, nil
+		}
+		lastErr = err
+		if !isRetriableAgentRead(err) || attempt == agentCreateReadAttempts-1 {
+			break
+		}
+		time.Sleep(agentCreateReadRetryDelay)
+	}
+	return nil, lastErr
+}
+
+func isRetriableAgentRead(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		// Transport errors are transient from the provider's perspective.
+		return true
+	}
+
+	return apiErr.StatusCode == http.StatusNotFound ||
+		apiErr.StatusCode == http.StatusRequestTimeout ||
+		apiErr.StatusCode == http.StatusTooManyRequests ||
+		apiErr.StatusCode >= http.StatusInternalServerError
+}
+
+func (c *Client) rollbackCreatedAgent(name string, createErr error) error {
+	cleanupErr := c.DeleteAgent(name)
+	if cleanupErr == nil {
+		return createErr
+	}
+
+	var apiErr *APIError
+	if errors.As(cleanupErr, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+		return createErr
+	}
+
+	return fmt.Errorf("%w; additionally failed to delete newly created agent %q: %v", createErr, name, cleanupErr)
 }
 
 func (c *Client) DeleteAgent(nameOrID string) error {

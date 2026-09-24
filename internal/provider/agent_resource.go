@@ -60,7 +60,7 @@ func (r *agentResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
-				Validators: NonEmptyStringValidator,
+				Validators: AgentNameValidator,
 			},
 			"mode": schema.StringAttribute{
 				Description: "The agent operation mode. Valid values are `standard` or `embedded`.",
@@ -184,6 +184,10 @@ func (r *agentResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 		nameOrID = state.Name.ValueString()
 	}
 	if err := r.client.DeleteAgent(nameOrID); err != nil {
+		var apiErr *hoop.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+			return
+		}
 		resp.Diagnostics.AddError(
 			"Error Deleting Agent",
 			fmt.Sprintf("Failed to delete agent: %v", err),

@@ -3,6 +3,8 @@
 package provider
 
 import (
+	"regexp"
+
 	"github.com/hashicorp/terraform-plugin-framework-validators/float64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/mapvalidator"
@@ -35,6 +37,13 @@ var AuthSchemeValidator = []validator.String{
 
 var AgentModeValidator = []validator.String{
 	stringvalidator.OneOf("standard", "embedded"),
+}
+
+var AgentNameValidator = []validator.String{
+	stringvalidator.RegexMatches(
+		regexp.MustCompile(`^[a-zA-Z0-9_]+(?:[-\.]?[a-zA-Z0-9_]+){2,253}$`),
+		"name must contain between 3 and 254 alphanumeric characters and may include (-), (_) or (.) characters",
+	),
 }
 
 var ConnectionTypeValidator = []validator.String{

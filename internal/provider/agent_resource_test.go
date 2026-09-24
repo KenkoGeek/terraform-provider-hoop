@@ -5,6 +5,7 @@ package provider
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -104,6 +105,61 @@ resource "hoop_agent" "test" {
 				ImportStateVerifyIgnore: []string{"token"},
 			},
 		},
+	})
+}
+
+func TestAgentResourceRejectsInvalidNames(t *testing.T) {
+	for _, name := range []string{"ab", "bad name", "bad--name", "bad..name"} {
+		t.Run(name, func(t *testing.T) {
+			resource.Test(t, resource.TestCase{
+				IsUnitTest: true,
+				ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
+					"hoop": providerserver.NewProtocol6WithError(New("test", createFakeAgentTestServer())()),
+				},
+				Steps: []resource.TestStep{{
+					Config: `
+provider "hoop" {
+  api_key = "orgid|hash"
+  api_url = "http://localhost:8009/api"
+}
+
+resource "hoop_agent" "test" {
+  name = "` + name + `"
+}
+`,
+					ExpectError: regexp.MustCompile(`Invalid Attribute Value Match`),
+				}},
+			})
+		})
+	}
+}
+
+func TestAgentResourceDeleteAlreadyAbsent(t *testing.T) {
+	base := createFakeAgentTestServer()
+	server := clientFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method == http.MethodDelete && strings.HasPrefix(req.URL.Path, "/api/agents/") {
+			return httpTestErr(http.StatusNotFound, "agent not found"), nil
+		}
+		return base(req)
+	})
+
+	resource.Test(t, resource.TestCase{
+		IsUnitTest: true,
+		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
+			"hoop": providerserver.NewProtocol6WithError(New("test", server)()),
+		},
+		Steps: []resource.TestStep{{
+			Config: `
+provider "hoop" {
+  api_key = "orgid|hash"
+  api_url = "http://localhost:8009/api"
+}
+
+resource "hoop_agent" "test" {
+  name = "terraform-agent"
+}
+`,
+		}},
 	})
 }
 
