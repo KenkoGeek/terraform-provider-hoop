@@ -33,6 +33,10 @@ var AuthSchemeValidator = []validator.String{
 	stringvalidator.OneOf(hoop.AuthSchemes...),
 }
 
+var AgentModeValidator = []validator.String{
+	stringvalidator.OneOf("standard", "embedded"),
+}
+
 var ConnectionTypeValidator = []validator.String{
 	stringvalidator.OneOf("database", "application", "custom"),
 }
